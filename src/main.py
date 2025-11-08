@@ -1,20 +1,19 @@
+import asyncio
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from api.router import api_router
 from db.db_utils import init_db
-from msg.msg_log_server import mqtt_init
+from msg.msg_log_server import mqtt_listener
+from fastapi.middleware.cors import CORSMiddleware
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    global mqtt_client
+    global mqtt_task
     print("🚀 FastAPI starting, initializing MQTT...")
-    mqtt_client = mqtt_init()
+    mqtt_task = asyncio.create_task(mqtt_listener())
     yield
-    if mqtt_client:
-        mqtt_client.loop_stop()
-        mqtt_client.disconnect()
-
 
 app = FastAPI(
     title="jo exercise",
@@ -23,6 +22,13 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 或 ["*"] 允許所有
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(api_router, prefix="/api")
