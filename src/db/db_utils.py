@@ -58,6 +58,7 @@ async def init_db(schema_path: str = "schema.sql"):
         if not exists_row["exists"]:
             # asyncpg.execute 可一次吃多個 statement（有分號也可以）
             await conn.execute("""
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TYPE sport_type AS ENUM (
     '羽球',
     '籃球',
@@ -84,7 +85,7 @@ CREATE TABLE centers (
 
 -- 使用者（發起人 / 參加者）
 CREATE TABLE users (
-    id BIGINT PRIMARY KEY
+    id VARCHAR(100) PRIMARY KEY
 );
 
 -- 合法「球種 × 場館」清單
@@ -102,7 +103,7 @@ CREATE TABLE allowed_pairs (
 
 -- 揪團活動
 CREATE TABLE events (
-    id SERIAL PRIMARY KEY,
+    uid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 
     sport sport_type  NOT NULL,
     center_id INT     NOT NULL,
@@ -113,7 +114,7 @@ CREATE TABLE events (
 
     status event_status NOT NULL DEFAULT 'open',
 
-    organizer_id INT NOT NULL,
+    organizer_id VARCHAR(100) NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- 場館關聯
@@ -144,15 +145,15 @@ CREATE TABLE events (
 
 -- 活動參加者表：記錄誰參加了哪個活動
 CREATE TABLE participants (
-    event_id INT NOT NULL,
-    user_id  BIGINT NOT NULL,
+    event_uid UUID NOT NULL,
+    user_id  VARCHAR(100) NOT NULL,
 
-    PRIMARY KEY (event_id, user_id),
+    PRIMARY KEY (event_uid, user_id),
 
     -- 關聯到 events 表
     CONSTRAINT fk_participants_event
-        FOREIGN KEY (event_id)
-        REFERENCES events (id)
+        FOREIGN KEY (event_uid)
+        REFERENCES events (uid)
         ON UPDATE CASCADE
         ON DELETE CASCADE,
 
@@ -225,7 +226,7 @@ CREATE TABLE messages (
 # =========================================================
 
 
-async def _ensure_user(conn: asyncpg.Connection, user_id: int):
+async def _ensure_user(conn: asyncpg.Connection, user_id: str):
     """
     確保 users 裡有這個 user_id，沒有就自動建立。
     前端只要丟 userid 就好。
@@ -311,7 +312,7 @@ async def get_allowed_pairs_grouped() -> List[Dict[str, Any]]:
 
 
 async def create_event(
-    user_id: int,
+    user_id: str,
     sport: str,
     center_id: int,
     start_time: datetime,
@@ -346,7 +347,7 @@ async def create_event(
                 """
                 INSERT INTO events (sport, center_id, start_time, capacity, organizer_id)
                 VALUES ($1, $2, $3, $4, $5)
-                RETURNING id, sport, center_id, start_time,
+                RETURNING uid, sport, center_id, start_time,
                           capacity, status, organizer_id, created_at;
                 """,
                 sport,
@@ -358,11 +359,11 @@ async def create_event(
 
             await conn.execute(
                 """
-                INSERT INTO participants (event_id, user_id)
+                INSERT INTO participants (event_uid, user_id)
                 VALUES ($1, $2)
                 ON CONFLICT DO NOTHING;
                 """,
-                event["id"],
+                event["uid"],
                 user_id,
             )
 
@@ -374,13 +375,13 @@ async def create_event(
 # =========================================================
 
 
-async def join_event(user_id: int, event_id: int) -> Dict[str, Any]:
+async def join_event(user_id: str, event_uid: str) -> Dict[str, Any]:
     """
     報名揪團：
     回傳:
     {
-        "event_id": int,
-        "user_id": int,
+        "event_uid": str,
+        "user_id": str,
         "status": "joined" / "already_joined" / "full" / "closed" / "not_found"
     }
     """
@@ -391,19 +392,19 @@ async def join_event(user_id: int, event_id: int) -> Dict[str, Any]:
 
             event = await conn.fetchrow(
                 """
-                SELECT id, capacity, status
+                SELECT uid, capacity, status
                 FROM events
-                WHERE id = $1
+                WHERE uid = $1
                 FOR UPDATE;
                 """,
-                event_id,
+                event_uid,
             )
             if event is None:
-                return {"event_id": event_id, "user_id": user_id, "status": "not_found"}
+                return {"event_uid": event_uid, "user_id": user_id, "status": "not_found"}
 
             if event["status"] not in ("open", "full"):
                 return {
-                    "event_id": event_id,
+                    "event_uid": event_uid,
                     "user_id": user_id,
                     "status": "closed",
                 }
@@ -411,14 +412,14 @@ async def join_event(user_id: int, event_id: int) -> Dict[str, Any]:
             exists = await conn.fetchrow(
                 """
                 SELECT 1 FROM participants
-                WHERE event_id = $1 AND user_id = $2;
+                WHERE event_uid = $1 AND user_id = $2;
                 """,
-                event_id,
+                event_uid,
                 user_id,
             )
             if exists:
                 return {
-                    "event_id": event_id,
+                    "event_uid": event_uid,
                     "user_id": user_id,
                     "status": "already_joined",
                 }
@@ -427,31 +428,31 @@ async def join_event(user_id: int, event_id: int) -> Dict[str, Any]:
                 """
                 SELECT COUNT(*)::int AS cnt
                 FROM participants
-                WHERE event_id = $1;
+                WHERE event_uid = $1;
                 """,
-                event_id,
+                event_uid,
             )
             current = cnt_row["cnt"]
 
             if current >= event["capacity"]:
                 if event["status"] != "full":
                     await conn.execute(
-                        "UPDATE events SET status = 'full' WHERE id = $1;",
-                        event_id,
+                        "UPDATE events SET status = 'full' WHERE uid = $1;",
+                        event_uid,
                     )
                 return {
-                    "event_id": event_id,
+                    "event_uid": event_uid,
                     "user_id": user_id,
                     "status": "full",
                 }
 
             await conn.execute(
                 """
-                INSERT INTO participants (event_id, user_id)
+                INSERT INTO participants (event_uid, user_id)
                 VALUES ($1, $2)
                 ON CONFLICT DO NOTHING;
                 """,
-                event_id,
+                event_uid,
                 user_id,
             )
 
@@ -459,19 +460,19 @@ async def join_event(user_id: int, event_id: int) -> Dict[str, Any]:
                 """
                 SELECT COUNT(*)::int AS cnt
                 FROM participants
-                WHERE event_id = $1;
+                WHERE event_uid = $1;
                 """,
-                event_id,
+                event_uid,
             )
             new_cnt = new_cnt_row["cnt"]
             if new_cnt >= event["capacity"]:
                 await conn.execute(
-                    "UPDATE events SET status = 'full' WHERE id = $1;",
-                    event_id,
+                    "UPDATE events SET status = 'full' WHERE uid = $1;",
+                    event_uid,
                 )
 
             return {
-                "event_id": event_id,
+                "event_uid": event_uid,
                 "user_id": user_id,
                 "status": "joined",
             }
@@ -482,7 +483,7 @@ async def join_event(user_id: int, event_id: int) -> Dict[str, Any]:
 # =========================================================
 
 
-async def cancel_event(event_id: int, organizer_id: int) -> Dict[str, Any]:
+async def cancel_event(event_uid: str, organizer_id: str) -> Dict[str, Any]:
     """
     取消整個活動：
     - 僅允許發起人本人操作
@@ -493,32 +494,32 @@ async def cancel_event(event_id: int, organizer_id: int) -> Dict[str, Any]:
         async with conn.transaction():
             event = await conn.fetchrow(
                 """
-                SELECT id, organizer_id, status
+                SELECT uid, organizer_id, status
                 FROM events
-                WHERE id = $1;
+                WHERE uid = $1;
                 """,
-                event_id,
+                event_uid,
             )
             if event is None:
-                return {"event_id": event_id, "status": "not_found"}
+                return {"event_uid": event_uid, "status": "not_found"}
 
             if event["organizer_id"] != organizer_id:
-                return {"event_id": event_id, "status": "forbidden"}
+                return {"event_uid": event_uid, "status": "forbidden"}
 
             if event["status"] == "cancelled":
-                return {"event_id": event_id, "status": "already_cancelled"}
+                return {"event_uid": event_uid, "status": "already_cancelled"}
 
             updated = await conn.fetchrow(
                 """
                 UPDATE events
                 SET status = 'cancelled'
-                WHERE id = $1
-                RETURNING id, status;
+                WHERE uid = $1
+                RETURNING uid, status;
                 """,
-                event_id,
+                event_uid,
             )
 
             return {
-                "event_id": updated["id"],
+                "event_uid": updated["uid"],
                 "status": updated["status"],
             }

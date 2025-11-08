@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TYPE sport_type AS ENUM (
     '羽球',
     '籃球',
@@ -24,7 +25,7 @@ CREATE TABLE centers (
 
 -- 使用者（發起人 / 參加者）
 CREATE TABLE users (
-    id BIGINT PRIMARY KEY
+    id VARCHAR(100) PRIMARY KEY
 );
 
 -- 合法「球種 × 場館」清單
@@ -42,7 +43,7 @@ CREATE TABLE allowed_pairs (
 
 -- 揪團活動
 CREATE TABLE events (
-    id SERIAL PRIMARY KEY,
+    uid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 
     sport sport_type  NOT NULL,
     center_id INT     NOT NULL,
@@ -53,7 +54,7 @@ CREATE TABLE events (
 
     status event_status NOT NULL DEFAULT 'open',
 
-    organizer_id INT NOT NULL,
+    organizer_id VARCHAR(100) NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- 場館關聯
@@ -84,15 +85,15 @@ CREATE TABLE events (
 
 -- 活動參加者表：記錄誰參加了哪個活動
 CREATE TABLE participants (
-    event_id INT NOT NULL,
-    user_id  BIGINT NOT NULL,
+    event_uid UUID NOT NULL,
+    user_id  VARCHAR(100) NOT NULL,
 
-    PRIMARY KEY (event_id, user_id),
+    PRIMARY KEY (event_uid, user_id),
 
     -- 關聯到 events 表
     CONSTRAINT fk_participants_event
-        FOREIGN KEY (event_id)
-        REFERENCES events (id)
+        FOREIGN KEY (event_uid)
+        REFERENCES events (uid)
         ON UPDATE CASCADE
         ON DELETE CASCADE,
 
