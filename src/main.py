@@ -2,12 +2,18 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from api.router import api_router
 from db.session import init_db_pool
-
+from msg.msg_log_server import mqtt_init
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db_pool()
+    global mqtt_client
+    print("🚀 FastAPI starting, initializing MQTT...")
+    mqtt_client = mqtt_init()
     yield
+    if mqtt_client:
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
 
 
 app = FastAPI(
