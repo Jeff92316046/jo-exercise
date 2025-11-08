@@ -203,7 +203,10 @@ SELECT '高爾夫', id FROM centers WHERE name IN
 ('萬華');
 
 CREATE TABLE channels (
-    channel_id UUID PRIMARY KEY,
+    channel_id UUID PRIMARY KEY
+        REFERENCES events(uid)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
     channel_name VARCHAR(255) NOT NULL UNIQUE,
     is_active BOOLEAN DEFAULT TRUE
 );
@@ -367,7 +370,7 @@ async def create_event(
                 user_uid,
             )
 
-            return dict(event)
+            return {"uid": str(event["uid"])}
 
 
 # =========================================================
