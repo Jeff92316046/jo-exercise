@@ -232,7 +232,7 @@ CREATE TABLE messages (
 
 async def _ensure_user(conn: asyncpg.Connection, user_uid: str):
     await conn.execute(
-        "INSERT INTO users (id) VALUES ($1) ON CONFLICT (uid) DO NOTHING;",
+        "INSERT INTO users (uid) VALUES ($1) ON CONFLICT (uid) DO NOTHING;",
         user_uid,
     )
 
