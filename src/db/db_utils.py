@@ -347,7 +347,7 @@ async def create_event(
             event = await conn.fetchrow(
                 """
                 INSERT INTO events (sport, center_id, start_time, end_time, capacity, organizer_uid)
-                VALUES ($1, $2, $3, $4, $5)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING uid, sport, center_id, start_time, end_time,
                           capacity, status, organizer_uid, created_at;
                 """,
