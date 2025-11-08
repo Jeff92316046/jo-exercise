@@ -85,7 +85,7 @@ CREATE TYPE event_status AS ENUM (
 
 -- 運動中心主表：名稱 + 經緯度
 CREATE TABLE centers (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(50) NOT NULL UNIQUE,
     latitude  DOUBLE PRECISION NOT NULL,
     longitude DOUBLE PRECISION NOT NULL
@@ -100,7 +100,7 @@ CREATE TABLE users (
 -- 只允許 (sport, center_id) 在這裡出現的組合被拿去開團
 CREATE TABLE allowed_pairs (
     sport     sport_type NOT NULL,
-    center_id INT        NOT NULL,
+    center_id UUID        NOT NULL,
     PRIMARY KEY (sport, center_id),
     CONSTRAINT fk_allowed_center
         FOREIGN KEY (center_id)
@@ -114,7 +114,7 @@ CREATE TABLE events (
     uid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 
     sport sport_type  NOT NULL,
-    center_id INT     NOT NULL,
+    center_id UUID     NOT NULL,
     start_time TIMESTAMPTZ NOT NULL,
     end_time TIMESTAMPTZ NOT NULL,  
 
@@ -322,7 +322,7 @@ async def get_allowed_pairs_grouped() -> List[Dict[str, Any]]:
 async def create_event(
     user_uid: str,
     sport: str,
-    center_id: int,
+    center_id: str,
     start_time: datetime,
     end_time: datetime, 
     capacity: int,
@@ -371,6 +371,15 @@ async def create_event(
                 """
                 INSERT INTO participants (event_uid, user_uid)
                 VALUES ($1, $2)
+                ON CONFLICT DO NOTHING;
+                """,
+                event["uid"],
+                user_uid,
+            )
+            await conn.execute(
+                """
+                INSERT INTO channels (channel_id, channel_name, is_active)
+                VALUES ($1, $2, TRUE)
                 ON CONFLICT DO NOTHING;
                 """,
                 event["uid"],
