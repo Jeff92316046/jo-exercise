@@ -154,7 +154,7 @@ CREATE TABLE channels (
 
 CREATE TABLE messages (
     channel_id UUID NOT NULL,
-    user_uid UUID NOT NULL,
+    uid UUID NOT NULL,
     payload JSONB NOT NULL,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_channel
