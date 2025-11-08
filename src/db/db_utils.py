@@ -1,7 +1,7 @@
 import asyncpg
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-
+from datetime import datetime, timezone
 from core.config import settings
 
 
@@ -231,12 +231,8 @@ CREATE TABLE messages (
 
 
 async def _ensure_user(conn: asyncpg.Connection, user_uid: str):
-    """
-    確保 users 裡有這個 user_id，沒有就自動建立。
-    前端只要丟 userid 就好。
-    """
     await conn.execute(
-        "INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING;",
+        "INSERT INTO users (id) VALUES ($1) ON CONFLICT (uid) DO NOTHING;",
         user_uid,
     )
 
@@ -351,8 +347,8 @@ async def create_event(
             event = await conn.fetchrow(
                 """
                 INSERT INTO events (sport, center_id, start_time, end_time, capacity, organizer_uid)
-                VALUES ($1, $2, $3, $4, $5)
-                RETURNING uid, sport, center_id, start_time,
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING uid, sport, center_id, start_time, end_time,
                           capacity, status, organizer_uid, created_at;
                 """,
                 sport,
@@ -489,7 +485,7 @@ async def join_event(user_uid: str, event_uid: str) -> Dict[str, Any]:
 # =========================================================
 
 
-async def cancel_event(event_uid: str) -> Dict[str, Any]:
+async def cancel_event(event_uid: str):
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -508,11 +504,14 @@ async def get_user_active_events(user_uid: str) -> List[Dict[str, Any]]:
     """
     取得某個使用者「正在進行」的活動列表。
     規則：
-    - 有出現在 participants (包含發起人，本來就會被加進去)
+    - 有出現在 participants
     - 活動狀態不是 cancelled / closed
+    - end_time 未過期（過期的已在這裡被刪除）
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await _cleanup_expired_events(conn)
+
         rows = await conn.fetch(
             """
             SELECT
@@ -539,14 +538,19 @@ async def get_user_active_events(user_uid: str) -> List[Dict[str, Any]]:
         )
         return [dict(r) for r in rows]
 
+
 async def get_all_active_events() -> List[Dict[str, Any]]:
     """
     取得所有「正在進行」的活動列表。
     規則：
     - 狀態不是 cancelled / closed
+    - end_time 未過期（過期的已在這裡被刪除）
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # 先清掉已過期活動
+        await _cleanup_expired_events(conn)
+
         rows = await conn.fetch(
             """
             SELECT
@@ -568,3 +572,67 @@ async def get_all_active_events() -> List[Dict[str, Any]]:
             """
         )
         return [dict(r) for r in rows]
+
+
+async def _cleanup_expired_events(conn: asyncpg.Connection):
+    """
+    刪除已經結束的活動：
+    - 條件：end_time <= 現在時間 (NOW)
+    - 依賴外鍵 ON DELETE CASCADE，自動清掉 participants / channels / messages
+    """
+    await conn.execute(
+        """
+        DELETE FROM events
+        WHERE end_time <= NOW();
+        """
+    )
+
+async def leave_event(user_uid: str, event_uid: str) -> bool:
+    """
+    使用者退出活動。
+    - 如果使用者有參加 -> 刪除 participants 紀錄。
+    - 若活動原本為 full 且退出後未滿，改回 open。
+    - 若使用者沒參加，回傳 False。
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # 檢查是否參加
+            exists = await conn.fetchval(
+                "SELECT 1 FROM participants WHERE user_uid = $1 AND event_uid = $2;",
+                user_uid,
+                event_uid,
+            )
+            if not exists:
+                return False
+
+            # 刪除參加者
+            await conn.execute(
+                "DELETE FROM participants WHERE user_uid = $1 AND event_uid = $2;",
+                user_uid,
+                event_uid,
+            )
+
+            # 檢查目前人數與上限
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM participants WHERE event_uid = $1;",
+                event_uid,
+            )
+            capacity = await conn.fetchval(
+                "SELECT capacity FROM events WHERE uid = $1;",
+                event_uid,
+            )
+
+            # 若人數小於上限且原本為 full，改回 open
+            await conn.execute(
+                """
+                UPDATE events
+                SET status = 'open'
+                WHERE uid = $1 AND status = 'full' AND $2 < $3;
+                """,
+                event_uid,
+                count,
+                capacity,
+            )
+
+            return True
