@@ -1,16 +1,8 @@
 import uvicorn
 from fastapi import FastAPI, Depends, HTTPException, status
-from msg_log_server import init_db_pool, close_db_pool, get_message_history # 引入分離的資料庫函數
+from msg.msg_log_server import init_db_pool, close_db_pool, get_message_history # 引入分離的資料庫函數
 
 app = FastAPI()
-
-@app.on_event("startup")
-async def startup_event():
-    await init_db_pool()
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await close_db_pool()
 
 @app.get("/history/{channel_id}")
 async def read_message_history(
