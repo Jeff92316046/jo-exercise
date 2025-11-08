@@ -612,27 +612,14 @@ async def leave_event(user_uid: str, event_uid: str) -> bool:
                 user_uid,
                 event_uid,
             )
-
-            # 檢查目前人數與上限
-            count = await conn.fetchval(
-                "SELECT COUNT(*) FROM participants WHERE event_uid = $1;",
-                event_uid,
-            )
-            capacity = await conn.fetchval(
-                "SELECT capacity FROM events WHERE uid = $1;",
-                event_uid,
-            )
-
-            # 若人數小於上限且原本為 full，改回 open
+            # 若原本為 full，改回 open
             await conn.execute(
                 """
                 UPDATE events
                 SET status = 'open'
-                WHERE uid = $1 AND status = 'full' AND $2 < $3;
+                WHERE uid = $1 AND status = 'full';
                 """,
                 event_uid,
-                count,
-                capacity,
             )
 
             return True
