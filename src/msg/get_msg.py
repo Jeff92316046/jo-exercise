@@ -1,5 +1,6 @@
 import paho.mqtt.client as mqtt
 import json
+import uuid
 
 from core.config import settings
 
@@ -7,18 +8,22 @@ MQTT_USR_NAME = settings.MQTT_USR_NAME
 MQTT_USR_PWD = settings.MQTT_USR_PWD
 MQTT_BROKER = settings.MQTT_BROKER
 
-CHANNEL_ID = ""#聊天室ID
+CHANNEL_ID = ""
 
 subToppic = f"TownPass/{CHANNEL_ID}"
+
+def is_valid_uuid(uuid_str, version=4):
+    try:
+        val = uuid.UUID(uuid_str, version=version)
+        return str(val) == uuid_str
+    except ValueError:
+        return False
 
 def on_subcribe(client, userdata, mid, reason_code_list, properties):
     if reason_code_list[0].is_failure:
         print(f"Broker 拒絕了您的訂閱: {reason_code_list[0]}")
     else:
         print(f"Broker 授予的 QoS: {reason_code_list[0].value}")
-        
-    #初次訂閱後查詢資料庫並同步歷史聊天紀錄
-
 def on_unsubcribe(client, userdata, mid, reason_code_list, properties):
     if len(reason_code_list) == 0 or not reason_code_list[0].is_failure:
         print("取消訂閱成功 (若在 MQTTv3 收到 SUBACK 則成功)")
@@ -49,6 +54,9 @@ def on_message(client, userdata, message):
         print(f"無法從主題 '{full_topic}' 提取 channel_id，請檢查主題格式。")
         return
     
+    if not is_valid_uuid(channel_id):
+        print(f"channel_id '{channel_id}' 不是有效的 UUID 格式。")
+        return
     
     user_msg_dict = None
     try:
@@ -65,16 +73,17 @@ def on_message(client, userdata, message):
         print("訊息字典為空。")
         return
 
-    # 提取 user_id 和 message
-    user_id = list(user_msg_dict.keys())[0]
-    chat_message = user_msg_dict[user_id]
+    if len(user_msg_dict) != 1:
+        print("訊息載荷格式錯誤：預期只有一個 user_id 作為鍵。")
+        return
 
+    user_id = list(user_msg_dict.keys())[0]
     
-    # 您的資料儲存部分
-    # database insert (user_id, channel_id, time)
-    
-    
-    # 這裡將是您準備傳送到前端的資料
+    if not is_valid_uuid(user_id):
+        print(f"user_id '{user_id}' 不是有效的 UUID 格式。")
+        return
+        
+    chat_message = user_msg_dict[user_id]
     
     message_data = {
         "channel_id": channel_id,
@@ -82,7 +91,7 @@ def on_message(client, userdata, message):
         "message": chat_message
     }
     
-    print("--- 接收到新的聊天訊息 ---")
+    print("--- 接收到新的聊天訊息 (UUID 驗證成功) ---")
     print(f"聊天室 ID: {message_data['channel_id']}")
     print(f"用戶 ID: {message_data['user_id']}")
     print(f"訊息內容: {message_data['message']}")

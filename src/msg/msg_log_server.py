@@ -1,6 +1,7 @@
 import paho.mqtt.client as mqtt
 import time, json
-import asyncio # 引入 asyncio
+import asyncio
+import uuid
 
 from core.config import settings
 
@@ -30,7 +31,7 @@ async def init_db_pool():
         await conn.execute(
             """
             CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-            """,
+            """
         )
         await create_all_tables(conn)
 
@@ -44,7 +45,7 @@ async def get_db() -> AsyncGenerator[asyncpg.Connection, None]:
         async with connection.transaction():
             yield connection
 
-async def save_message_to_db(channel_id: int, user_id: str, payload: dict):
+async def save_message_to_db(channel_id: str, user_id: str, payload: dict):
     async for conn in get_db():
         try:
             await conn.execute(
@@ -97,13 +98,18 @@ def on_message(client, userdata, message):
     payload_str = message.payload.decode('utf-8')
 
     topic_parts = full_topic.split('/')
-    channel_id = None
 
     channel_id_str = None
     if len(topic_parts) >= 2 and topic_parts[0] == "TownPass":
         channel_id_str = topic_parts[1]
     else:
-        print(f"無法從主題 '{full_topic}' 提取 terminal_id，請檢查主題格式。")
+        print(f"無法從主題 '{full_topic}' 提取 Channel ID，請檢查主題格式。")
+        return
+
+    try:
+        uuid.UUID(channel_id_str)
+    except ValueError:
+        print(f"Channel ID '{channel_id_str}' 無法轉換為有效的 UUID 格式。")
         return
     
     user_msg_dict = None
@@ -116,33 +122,22 @@ def on_message(client, userdata, message):
         print(f"無法解析訊息載荷為 JSON: {payload_str}")
         return
     
-    try:
-        channel_id_int = int(channel_id_str)
-    except ValueError:
-        print(f"Channel ID '{channel_id_str}' 無法轉換為整數。")
-        return
-    
-    # 從字典中提取 user_id 和 message
-    # 假設字典中只有一組 {user_id: message}
     if not user_msg_dict:
         print("訊息載荷為空字典。")
         return
 
-    # 取得第一個（也是唯一一個）鍵值對
     user_id = list(user_msg_dict.keys())[0]
     message_payload = user_msg_dict[user_id]
     
-    # 執行非同步資料庫儲存操作
-    # 為了在同步的 on_message 中執行非同步的 asyncpg 程式碼，我們使用 asyncio.run()
     try:
-        asyncio.run(save_message_to_db(channel_id_int, user_id, message_payload))
+        asyncio.run(save_message_to_db(channel_id_str, user_id, message_payload))
     except RuntimeError as e:
         if "no running event loop" in str(e):
              print("請確保在執行 mqttc.loop_forever() 之前，事件循環已初始化。")
         else:
             print(f"非同步執行錯誤: {e}")
 
-async def get_message_history(channel_id: int, limit: int = 100):
+async def get_message_history(channel_id: str, limit: int = 100):
     async for conn in get_db():
         try:
             records = await conn.fetch(
@@ -159,7 +154,6 @@ async def get_message_history(channel_id: int, limit: int = 100):
             
             history = []
             for record in records:
-                # payload 在資料庫中是以 JSON 字串儲存的
                 message_payload = json.loads(record["payload"]) if record["payload"] else {}
                 
                 history.append(
