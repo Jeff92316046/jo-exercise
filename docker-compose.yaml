@@ -1,0 +1,22 @@
+services:
+  api:
+    build: .
+    depends_on:
+      - db
+    ports:
+      - "8000:80"
+    env_file:
+      - .env
+    restart: always
+
+  db:
+    image: postgres:17
+    container_name: postgres
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  postgres_data:
