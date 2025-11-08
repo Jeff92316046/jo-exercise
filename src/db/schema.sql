@@ -48,6 +48,7 @@ CREATE TABLE events (
     sport sport_type  NOT NULL,
     center_id INT     NOT NULL,
     start_time TIMESTAMPTZ NOT NULL,
+    end_time TIMESTAMPTZ NOT NULL,  
 
     capacity INT NOT NULL
         CHECK (capacity > 1 AND capacity <= 100),

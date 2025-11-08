@@ -108,6 +108,7 @@ CREATE TABLE events (
     sport sport_type  NOT NULL,
     center_id INT     NOT NULL,
     start_time TIMESTAMPTZ NOT NULL,
+    end_time TIMESTAMPTZ NOT NULL,  
 
     capacity INT NOT NULL
         CHECK (capacity > 1 AND capacity <= 100),
@@ -319,6 +320,7 @@ async def create_event(
     sport: str,
     center_id: int,
     start_time: datetime,
+    end_time: datetime, 
     capacity: int,
 ) -> Dict[str, Any]:
     """
@@ -348,7 +350,7 @@ async def create_event(
 
             event = await conn.fetchrow(
                 """
-                INSERT INTO events (sport, center_id, start_time, capacity, organizer_uid)
+                INSERT INTO events (sport, center_id, start_time, end_time, capacity, organizer_uid)
                 VALUES ($1, $2, $3, $4, $5)
                 RETURNING uid, sport, center_id, start_time,
                           capacity, status, organizer_uid, created_at;
@@ -356,6 +358,7 @@ async def create_event(
                 sport,
                 center_id,
                 start_time,
+                end_time,
                 capacity,
                 user_uid,
             )
@@ -486,43 +489,82 @@ async def join_event(user_uid: str, event_uid: str) -> Dict[str, Any]:
 # =========================================================
 
 
-async def cancel_event(event_uid: str, organizer_uid: str) -> Dict[str, Any]:
-    """
-    取消整個活動：
-    - 僅允許發起人本人操作
-    - 將 status 改為 'cancelled'
-    """
+async def cancel_event(event_uid: str) -> Dict[str, Any]:
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            event = await conn.fetchrow(
+            result = await conn.execute(
                 """
-                SELECT uid, organizer_uid, status
-                FROM events
+                DELETE FROM events
                 WHERE uid = $1;
                 """,
                 event_uid,
             )
-            if event is None:
-                return {"event_uid": event_uid, "status": "not_found"}
+            # asyncpg.execute 會回傳類似 "DELETE 1" 或 "DELETE 0"
+            deleted = result.startswith("DELETE 1")
+            
+async def get_user_active_events(user_uid: str) -> List[Dict[str, Any]]:
+    """
+    取得某個使用者「正在進行」的活動列表。
+    規則：
+    - 有出現在 participants (包含發起人，本來就會被加進去)
+    - 活動狀態不是 cancelled / closed
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                e.uid,
+                e.sport,
+                e.center_id,
+                c.name AS center_name,
+                e.start_time,
+                e.end_time,
+                e.capacity,
+                e.status,
+                e.organizer_uid
+            FROM events e
+            JOIN participants p
+                ON p.event_uid = e.uid
+            LEFT JOIN centers c
+                ON c.id = e.center_id
+            WHERE
+                p.user_uid = $1
+                AND e.status NOT IN ('cancelled', 'closed')
+            ORDER BY e.start_time;
+            """,
+            user_uid,
+        )
+        return [dict(r) for r in rows]
 
-            if event["organizer_uid"] != organizer_uid:
-                return {"event_uid": event_uid, "status": "forbidden"}
-
-            if event["status"] == "cancelled":
-                return {"event_uid": event_uid, "status": "already_cancelled"}
-
-            updated = await conn.fetchrow(
-                """
-                UPDATE events
-                SET status = 'cancelled'
-                WHERE uid = $1
-                RETURNING uid, status;
-                """,
-                event_uid,
-            )
-
-            return {
-                "event_uid": updated["uid"],
-                "status": updated["status"],
-            }
+async def get_all_active_events() -> List[Dict[str, Any]]:
+    """
+    取得所有「正在進行」的活動列表。
+    規則：
+    - 狀態不是 cancelled / closed
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                e.uid,
+                e.sport,
+                e.center_id,
+                c.name AS center_name,
+                e.start_time,
+                e.end_time,
+                e.capacity,
+                e.status,
+                e.organizer_uid
+            FROM events e
+            LEFT JOIN centers c
+                ON c.id = e.center_id
+            WHERE
+                e.status NOT IN ('cancelled', 'closed')
+            ORDER BY e.start_time;
+            """
+        )
+        return [dict(r) for r in rows]
