@@ -348,7 +348,7 @@ async def create_event(
                 """
                 INSERT INTO events (sport, center_id, start_time, end_time, capacity, organizer_uid)
                 VALUES ($1, $2, $3, $4, $5)
-                RETURNING uid, sport, center_id, start_time,
+                RETURNING uid, sport, center_id, start_time, end_time,
                           capacity, status, organizer_uid, created_at;
                 """,
                 sport,
