@@ -4,6 +4,7 @@ from fastapi.exceptions import HTTPException
 from db import db_utils
 from schemas.base import Place
 from schemas.request import ComputeRequest
+from schemas.response import ComputeResponse
 
 router = APIRouter(
     prefix="/compute",
@@ -13,7 +14,7 @@ router = APIRouter(
 @router.post("/")
 async def compute_closest_place(
         body: ComputeRequest.ClosestPlaceRequestModel,
-    ) -> Place:
+    ) -> ComputeResponse.ClosestPlaceResponseModel:
 
     if body.sport and body.sport not in await db_utils.get_sports():
         raise HTTPException(status_code=400, detail="Invalid sport type")
