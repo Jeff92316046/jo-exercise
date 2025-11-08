@@ -5,7 +5,7 @@ from schemas.base import Place, Record
 
 class ComputeResponse(BaseModel):
     class ClosestPlaceResponseModel(BaseModel):
-        place: str
+        place: Place
 
 class ListResponse(BaseModel):
     class SportsListResponseModel(BaseModel):

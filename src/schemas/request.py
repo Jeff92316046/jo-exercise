@@ -14,7 +14,7 @@ class ComputeRequest(BaseModel):
 class RecordRequest(BaseModel):
     class CreateRecordRequestModel(BaseModel):
         user_id: UUID
-        place_id: int
+        place_id: UUID
         sport: str
         start_time: datetime
         end_time: datetime
