@@ -11,15 +11,14 @@ MQTT_BROKER = settings.MQTT_BROKER
 
 import asyncpg
 from core.config import settings
-from db.init_db import create_all_tables
 from typing import AsyncGenerator
-from db.session import get_db
+from db.db_utils import get_db
 
 async def save_message_to_db(channel_id: str, user_id: str, payload: dict):
     async for conn in get_db():
         try:
             await conn.execute(
-                """
+                """ 
                 INSERT INTO messages (channel_id, user_id, payload)
                 VALUES ($1, $2, $3);
                 """,

@@ -1,6 +1,6 @@
 import asyncpg
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import AsyncGenerator, Optional, List, Dict, Any
 
 from core.config import settings
 
@@ -31,6 +31,14 @@ async def get_pool() -> asyncpg.Pool:
         )
     return _pool
 
+async def get_db() -> AsyncGenerator[asyncpg.Connection, None]:
+    if _pool is None:
+        raise RuntimeError(
+            "Database pool is not initialized. Call init_db_pool() first."
+        )
+    async with _pool.acquire() as connection:
+        async with connection.transaction():
+            yield connection
 
 # =========================================================
 # 初始化：若尚未建表則執行 schema.sql
