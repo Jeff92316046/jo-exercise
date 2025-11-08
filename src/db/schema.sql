@@ -48,6 +48,7 @@ CREATE TABLE events (
     sport sport_type  NOT NULL,
     center_id INT     NOT NULL,
     start_time TIMESTAMPTZ NOT NULL,
+    end_time TIMESTAMPTZ NOT NULL,  
 
     capacity INT NOT NULL
         CHECK (capacity > 1 AND capacity <= 100),
@@ -66,7 +67,7 @@ CREATE TABLE events (
 
     -- 發起人關聯
     CONSTRAINT fk_events_organizer
-        FOREIGN KEY (organizer_id)
+        FOREIGN KEY (organizer_uid)
         REFERENCES users (uid)
         ON UPDATE CASCADE
         ON DELETE RESTRICT,
@@ -142,6 +143,15 @@ INSERT INTO allowed_pairs (sport, center_id)
 SELECT '高爾夫', id FROM centers WHERE name IN
 ('萬華');
 
+CREATE TABLE channels (
+    channel_id UUID PRIMARY KEY
+        REFERENCES events(uid)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    channel_name VARCHAR(255) NOT NULL UNIQUE,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
 CREATE TABLE messages (
     channel_id UUID NOT NULL,
     user_uid UUID NOT NULL,
@@ -151,10 +161,4 @@ CREATE TABLE messages (
         FOREIGN KEY (channel_id)
         REFERENCES channels(channel_id)
         ON DELETE CASCADE
-);
-
-CREATE TABLE channels (
-    channel_id UUID PRIMARY KEY,
-    channel_name VARCHAR(255) NOT NULL UNIQUE,
-    is_active BOOLEAN DEFAULT TRUE
 );
