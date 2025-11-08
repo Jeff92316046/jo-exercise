@@ -368,6 +368,15 @@ async def create_event(
                 event["uid"],
                 user_uid,
             )
+            await conn.execute(
+                """
+                INSERT INTO channels (channel_id, channel_name, is_active)
+                VALUES ($1, $2, TRUE)
+                ON CONFLICT DO NOTHING;
+                """,
+                event["uid"],
+                user_uid,
+            )
 
             return {"uid": str(event["uid"])}
 
