@@ -142,6 +142,40 @@ def on_message(client, userdata, message):
         else:
             print(f"非同步執行錯誤: {e}")
 
+async def get_message_history(channel_id: int, limit: int = 100):
+    async for conn in get_db():
+        try:
+            records = await conn.fetch(
+                """
+                SELECT user_id, payload, created_at
+                FROM messages
+                WHERE channel_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2;
+                """,
+                channel_id,
+                limit,
+            )
+            
+            history = []
+            for record in records:
+                # payload 在資料庫中是以 JSON 字串儲存的
+                message_payload = json.loads(record["payload"]) if record["payload"] else {}
+                
+                history.append(
+                    {
+                        "user_id": record["user_id"],
+                        "message_content": message_payload, 
+                        "timestamp": record["created_at"].isoformat(),
+                    }
+                )
+            
+            return history
+        except Exception as e:
+            print(f"資料庫檢索錯誤: {e}")
+            return []
+        finally:
+            break
 
 async def main():
     await init_db_pool()
