@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from api.router import api_router
-from db.session import init_db_pool
+from db.db_utils import init_db
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db_pool()
+    await init_db()
     yield
 
 
