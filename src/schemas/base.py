@@ -7,7 +7,7 @@ class Location(BaseModel):
     longitude: float
 
 class Place(BaseModel):
-    place_id: int
+    place_id: UUID
     name: str
 
 class Record(BaseModel):
