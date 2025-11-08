@@ -25,7 +25,7 @@ CREATE TABLE centers (
 
 -- 使用者（發起人 / 參加者）
 CREATE TABLE users (
-    id VARCHAR(100) PRIMARY KEY
+    uid UUID PRIMARY KEY
 );
 
 -- 合法「球種 × 場館」清單
@@ -54,7 +54,7 @@ CREATE TABLE events (
 
     status event_status NOT NULL DEFAULT 'open',
 
-    organizer_id VARCHAR(100) NOT NULL,
+    organizer_uid UUID NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- 場館關聯
@@ -67,7 +67,7 @@ CREATE TABLE events (
     -- 發起人關聯
     CONSTRAINT fk_events_organizer
         FOREIGN KEY (organizer_id)
-        REFERENCES users (id)
+        REFERENCES users (uid)
         ON UPDATE CASCADE
         ON DELETE RESTRICT,
 
@@ -80,15 +80,15 @@ CREATE TABLE events (
 
     -- 同一發起人、同一開始時間、同一場館、同一球種 只能開一團
     CONSTRAINT uq_event_unique_slot
-        UNIQUE (organizer_id, start_time, center_id, sport)
+        UNIQUE (organizer_uid, start_time, center_id, sport)
 );
 
 -- 活動參加者表：記錄誰參加了哪個活動
 CREATE TABLE participants (
     event_uid UUID NOT NULL,
-    user_id  VARCHAR(100) NOT NULL,
+    user_uid UUID NOT NULL,
 
-    PRIMARY KEY (event_uid, user_id),
+    PRIMARY KEY (event_uid, user_uid),
 
     -- 關聯到 events 表
     CONSTRAINT fk_participants_event
@@ -99,8 +99,8 @@ CREATE TABLE participants (
 
     -- 關聯到 users 表
     CONSTRAINT fk_participants_user
-        FOREIGN KEY (user_id)
-        REFERENCES users (id)
+        FOREIGN KEY (user_uid)
+        REFERENCES users (uid)
         ON UPDATE CASCADE
         ON DELETE CASCADE
 );
@@ -143,8 +143,8 @@ SELECT '高爾夫', id FROM centers WHERE name IN
 ('萬華');
 
 CREATE TABLE messages (
-    channel_id BIGINT NOT NULL,
-    user_id VARCHAR(100) NOT NULL,
+    channel_id UUID NOT NULL,
+    user_uid UUID NOT NULL,
     payload JSONB NOT NULL,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_channel
@@ -154,7 +154,7 @@ CREATE TABLE messages (
 );
 
 CREATE TABLE channels (
-    channel_id BIGSERIAL PRIMARY KEY,
+    channel_id UUID PRIMARY KEY,
     channel_name VARCHAR(255) NOT NULL UNIQUE,
     is_active BOOLEAN DEFAULT TRUE
 );

@@ -85,7 +85,7 @@ CREATE TABLE centers (
 
 -- 使用者（發起人 / 參加者）
 CREATE TABLE users (
-    id VARCHAR(100) PRIMARY KEY
+    uid UUID PRIMARY KEY
 );
 
 -- 合法「球種 × 場館」清單
@@ -114,7 +114,7 @@ CREATE TABLE events (
 
     status event_status NOT NULL DEFAULT 'open',
 
-    organizer_id VARCHAR(100) NOT NULL,
+    organizer_uid UUID NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- 場館關聯
@@ -126,8 +126,8 @@ CREATE TABLE events (
 
     -- 發起人關聯
     CONSTRAINT fk_events_organizer
-        FOREIGN KEY (organizer_id)
-        REFERENCES users (id)
+        FOREIGN KEY (organizer_uid)
+        REFERENCES users (uid)
         ON UPDATE CASCADE
         ON DELETE RESTRICT,
 
@@ -140,15 +140,15 @@ CREATE TABLE events (
 
     -- 同一發起人、同一開始時間、同一場館、同一球種 只能開一團
     CONSTRAINT uq_event_unique_slot
-        UNIQUE (organizer_id, start_time, center_id, sport)
+        UNIQUE (organizer_uid, start_time, center_id, sport)
 );
 
 -- 活動參加者表：記錄誰參加了哪個活動
 CREATE TABLE participants (
     event_uid UUID NOT NULL,
-    user_id  VARCHAR(100) NOT NULL,
+    user_uid UUID NOT NULL,
 
-    PRIMARY KEY (event_uid, user_id),
+    PRIMARY KEY (event_uid, user_uid),
 
     -- 關聯到 events 表
     CONSTRAINT fk_participants_event
@@ -159,8 +159,8 @@ CREATE TABLE participants (
 
     -- 關聯到 users 表
     CONSTRAINT fk_participants_user
-        FOREIGN KEY (user_id)
-        REFERENCES users (id)
+        FOREIGN KEY (user_uid)
+        REFERENCES users (uid)
         ON UPDATE CASCADE
         ON DELETE CASCADE
 );
@@ -203,14 +203,14 @@ SELECT '高爾夫', id FROM centers WHERE name IN
 ('萬華');
 
 CREATE TABLE channels (
-    channel_id BIGSERIAL PRIMARY KEY,
+    channel_id UUID PRIMARY KEY,
     channel_name VARCHAR(255) NOT NULL UNIQUE,
     is_active BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE messages (
-    channel_id BIGINT NOT NULL,
-    user_id VARCHAR(100) NOT NULL,
+    channel_id UUID NOT NULL,
+    uid UUID NOT NULL,
     payload JSONB NOT NULL,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_channel
@@ -226,14 +226,14 @@ CREATE TABLE messages (
 # =========================================================
 
 
-async def _ensure_user(conn: asyncpg.Connection, user_id: str):
+async def _ensure_user(conn: asyncpg.Connection, user_uid: str):
     """
     確保 users 裡有這個 user_id，沒有就自動建立。
     前端只要丟 userid 就好。
     """
     await conn.execute(
         "INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING;",
-        user_id,
+        user_uid,
     )
 
 
@@ -312,7 +312,7 @@ async def get_allowed_pairs_grouped() -> List[Dict[str, Any]]:
 
 
 async def create_event(
-    user_id: str,
+    user_uid: str,
     sport: str,
     center_id: int,
     start_time: datetime,
@@ -341,30 +341,30 @@ async def create_event(
             if not allowed:
                 raise ValueError("非法的球種與場館組合")
 
-            await _ensure_user(conn, user_id)
+            await _ensure_user(conn, user_uid)
 
             event = await conn.fetchrow(
                 """
-                INSERT INTO events (sport, center_id, start_time, capacity, organizer_id)
+                INSERT INTO events (sport, center_id, start_time, capacity, organizer_uid)
                 VALUES ($1, $2, $3, $4, $5)
                 RETURNING uid, sport, center_id, start_time,
-                          capacity, status, organizer_id, created_at;
+                          capacity, status, organizer_uid, created_at;
                 """,
                 sport,
                 center_id,
                 start_time,
                 capacity,
-                user_id,
+                user_uid,
             )
 
             await conn.execute(
                 """
-                INSERT INTO participants (event_uid, user_id)
+                INSERT INTO participants (event_uid, user_uid)
                 VALUES ($1, $2)
                 ON CONFLICT DO NOTHING;
                 """,
                 event["uid"],
-                user_id,
+                user_uid,
             )
 
             return dict(event)
@@ -375,20 +375,20 @@ async def create_event(
 # =========================================================
 
 
-async def join_event(user_id: str, event_uid: str) -> Dict[str, Any]:
+async def join_event(user_uid: str, event_uid: str) -> Dict[str, Any]:
     """
     報名揪團：
     回傳:
     {
         "event_uid": str,
-        "user_id": str,
+        "user_uid": str,
         "status": "joined" / "already_joined" / "full" / "closed" / "not_found"
     }
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await _ensure_user(conn, user_id)
+            await _ensure_user(conn, user_uid)
 
             event = await conn.fetchrow(
                 """
@@ -400,27 +400,27 @@ async def join_event(user_id: str, event_uid: str) -> Dict[str, Any]:
                 event_uid,
             )
             if event is None:
-                return {"event_uid": event_uid, "user_id": user_id, "status": "not_found"}
+                return {"event_uid": event_uid, "user_uid": user_uid, "status": "not_found"}
 
             if event["status"] not in ("open", "full"):
                 return {
                     "event_uid": event_uid,
-                    "user_id": user_id,
+                    "user_uid": user_uid,
                     "status": "closed",
                 }
 
             exists = await conn.fetchrow(
                 """
                 SELECT 1 FROM participants
-                WHERE event_uid = $1 AND user_id = $2;
+                WHERE event_uid = $1 AND user_uid = $2;
                 """,
                 event_uid,
-                user_id,
+                user_uid,
             )
             if exists:
                 return {
                     "event_uid": event_uid,
-                    "user_id": user_id,
+                    "user_uid": user_uid,
                     "status": "already_joined",
                 }
 
@@ -442,18 +442,18 @@ async def join_event(user_id: str, event_uid: str) -> Dict[str, Any]:
                     )
                 return {
                     "event_uid": event_uid,
-                    "user_id": user_id,
+                    "user_uid": user_uid,
                     "status": "full",
                 }
 
             await conn.execute(
                 """
-                INSERT INTO participants (event_uid, user_id)
+                INSERT INTO participants (event_uid, user_uid)
                 VALUES ($1, $2)
                 ON CONFLICT DO NOTHING;
                 """,
                 event_uid,
-                user_id,
+                user_uid,
             )
 
             new_cnt_row = await conn.fetchrow(
@@ -473,7 +473,7 @@ async def join_event(user_id: str, event_uid: str) -> Dict[str, Any]:
 
             return {
                 "event_uid": event_uid,
-                "user_id": user_id,
+                "user_uid": user_uid,
                 "status": "joined",
             }
 
@@ -483,7 +483,7 @@ async def join_event(user_id: str, event_uid: str) -> Dict[str, Any]:
 # =========================================================
 
 
-async def cancel_event(event_uid: str, organizer_id: str) -> Dict[str, Any]:
+async def cancel_event(event_uid: str, organizer_uid: str) -> Dict[str, Any]:
     """
     取消整個活動：
     - 僅允許發起人本人操作
@@ -494,7 +494,7 @@ async def cancel_event(event_uid: str, organizer_id: str) -> Dict[str, Any]:
         async with conn.transaction():
             event = await conn.fetchrow(
                 """
-                SELECT uid, organizer_id, status
+                SELECT uid, organizer_uid, status
                 FROM events
                 WHERE uid = $1;
                 """,
@@ -503,7 +503,7 @@ async def cancel_event(event_uid: str, organizer_id: str) -> Dict[str, Any]:
             if event is None:
                 return {"event_uid": event_uid, "status": "not_found"}
 
-            if event["organizer_id"] != organizer_id:
+            if event["organizer_uid"] != organizer_uid:
                 return {"event_uid": event_uid, "status": "forbidden"}
 
             if event["status"] == "cancelled":
