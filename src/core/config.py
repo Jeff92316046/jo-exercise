@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     @property
     def database_url(self):
         return f"postgresql://{self.POSTGRES_USERNAME}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+    
+    MQTT_USR_NAME: str
+    MQTT_USR_PWD: str
+    MQTT_BROKER: str
 
 
 settings = Settings()
